@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🍅 番茄小说一键下载器</title>
+  <meta name="description" content="番茄小说一键下载器：免登录下载全书（APP 网关直连），本地运行，导出 TXT。" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%85%3C/text%3E%3C/svg%3E" />
+
+  <!-- Tailwind CSS（Play CDN，无需构建） -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    if (window.tailwind) {
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI',
+                     'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'sans-serif']
+            }
+          }
+        }
+      };
+    }
+  </script>
+
+  <style>
+    /* 避免 Vue 挂载前闪烁 */
+    [v-cloak] { display: none !important; }
+
+    html { -webkit-text-size-adjust: 100%; }
+
+    body {
+      background-color: #07070b;
+      background-image:
+        radial-gradient(60rem 40rem at 50% -18%, rgba(239, 68, 68, 0.10), transparent 62%),
+        radial-gradient(42rem 30rem at 108% 18%, rgba(249, 115, 22, 0.07), transparent 60%);
+      background-attachment: fixed;
+    }
+
+    /* 玻璃拟态卡片 */
+    .glass {
+      background: linear-gradient(150deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.025) 55%, rgba(255, 255, 255, 0.04) 100%);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      backdrop-filter: blur(20px) saturate(140%);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+    }
+
+    /* 文本截断（Tailwind line-clamp 的兜底实现） */
+    .line-clamp-2,
+    .line-clamp-3 {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .line-clamp-2 { -webkit-line-clamp: 2; }
+    .line-clamp-3 { -webkit-line-clamp: 3; }
+
+    /* 卡片淡入上滑 */
+    .fade-slide-enter-active,
+    .fade-slide-leave-active { transition: opacity 0.32s ease, transform 0.32s ease; }
+    .fade-slide-enter-from,
+    .fade-slide-leave-to { opacity: 0; transform: translateY(10px); }
+
+    /* 进度条流光 */
+    @keyframes shimmer {
+      0%   { transform: translateX(-120%); }
+      100% { transform: translateX(320%); }
+    }
+    .bar-shimmer {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 38%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.38), transparent);
+      animation: shimmer 1.7s ease-in-out infinite;
+    }
+
+    /* 背景光斑漂浮 */
+    @keyframes floaty {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50%      { transform: translateY(-14px) scale(1.04); }
+    }
+    .blob { animation: floaty 14s ease-in-out infinite; }
+
+    /* 自定义滚动条 */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.14);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.26);
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    textarea { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.16) transparent; }
+
+    ::selection { background: rgba(239, 68, 68, 0.35); color: #fff; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+
+<body class="min-h-screen overflow-x-hidden bg-[#07070b] font-sans text-white antialiased selection:bg-red-500/30">
+
+  <!-- 背景光斑 -->
+  <div class="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden="true">
+    <div class="blob absolute -left-24 -top-24 h-80 w-80 rounded-full bg-red-600/20 blur-3xl"></div>
+    <div class="blob absolute -right-32 top-1/4 h-96 w-96 rounded-full bg-orange-500/10 blur-3xl" style="animation-delay: -5s"></div>
+    <div class="blob absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-fuchsia-600/10 blur-3xl" style="animation-delay: -9s"></div>
+  </div>
+
+  <div id="app" v-cloak class="relative z-10 mx-auto flex min-h-screen w-full max-w-3xl flex-col px-4 pb-8 pt-10 sm:px-6 sm:pt-14">
+
+    <!-- 头部 -->
+    <header class="text-center sm:text-left">
+      <h1 class="flex items-center justify-center gap-2.5 text-2xl font-bold tracking-tight sm:justify-start sm:text-3xl">
+        <span class="text-3xl leading-none sm:text-4xl" aria-hidden="true">🍅</span>
+        <span>番茄小说一键下载器</span>
+      </h1>
+      <p class="mt-2 text-sm text-white/40 sm:text-[15px]">无广告 · 免登录 · APP 接口直连全本</p>
+    </header>
+
+    <main class="mt-7 flex-1 space-y-4 sm:mt-9 sm:space-y-5">
+
+      <!-- 输入卡片 -->
+      <section class="glass rounded-3xl p-4 shadow-2xl shadow-black/40 sm:p-5">
+        <div class="mb-2.5 flex flex-wrap items-center justify-between gap-1.5">
+          <label for="url-input" class="text-sm font-medium text-white/70">小说链接 / 分享文案</label>
+          <span class="text-[11px] text-white/30">支持 App 分享文案 · 短链接 · PC 链接</span>
+        </div>
+
+        <textarea
+          id="url-input"
+          v-model="inputText"
+          rows="2"
+          :disabled="parsing"
+          spellcheck="false"
+          autocomplete="off"
+          @keydown.enter.exact="onEnter"
+          @keydown.ctrl.enter.prevent="parseBook"
+          class="block w-full resize-y rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm leading-relaxed text-white/90 outline-none transition placeholder:text-white/25 focus:border-red-400/40 focus:ring-2 focus:ring-red-500/20 disabled:opacity-60 sm:text-[15px]"
+          placeholder="粘贴番茄小说分享文案或链接，例如：推荐一部好书《无人清白》https://changdunovel.com/t/ZPJkJpLOb-M/"
+        ></textarea>
+
+        <div class="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p class="text-[11px] leading-relaxed text-white/30">按 Enter 或 Ctrl + Enter 快速解析 · 本地运行，无需登录</p>
+          <button
+            type="button"
+            @click="parseBook"
+            :disabled="parsing || downloading"
+            class="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-500 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 sm:w-auto"
+          >
+            <svg v-if="parsing" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path>
+            </svg>
+            <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <span>{{ parsing ? '解析中…' : '解析书籍' }}</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- 解析错误提示 -->
+      <transition name="fade-slide">
+        <div
+          v-if="parseError"
+          class="flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200 shadow-lg shadow-black/20"
+          role="alert"
+        >
+          <span class="mt-0.5 shrink-0" aria-hidden="true">⚠️</span>
+          <p class="min-w-0 flex-1 break-words leading-relaxed">{{ parseError }}</p>
+          <button type="button" @click="parseError = ''" class="shrink-0 text-red-200/50 transition hover:text-red-100" aria-label="关闭提示">✕</button>
+        </div>
+      </transition>
+
+      <!-- 书籍卡片 -->
+      <transition name="fade-slide">
+        <article v-if="book" class="glass rounded-3xl p-4 shadow-2xl shadow-black/40 sm:p-6">
+          <div class="flex gap-4 sm:gap-6">
+            <!-- 封面 -->
+            <div class="w-20 shrink-0 sm:w-28">
+              <div class="aspect-[3/4] w-full overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-red-500/30 to-orange-500/20 shadow-xl shadow-black/40">
+                <img
+                  v-if="book.cover_url && !coverError"
+                  :src="book.cover_url"
+                  :alt="'《' + book.title + '》封面'"
+                  referrerpolicy="no-referrer"
+                  loading="lazy"
+                  class="h-full w-full object-cover"
+                  @error="coverError = true"
+                />
+                <div v-else class="flex h-full w-full flex-col items-center justify-center gap-1 text-3xl">
+                  <span aria-hidden="true">🍅</span>
+                  <span class="text-[9px] tracking-[0.2em] text-white/50">番茄小说</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 信息 -->
+            <div class="min-w-0 flex-1">
+              <h2 class="line-clamp-2 text-lg font-semibold leading-snug text-white sm:text-xl">{{ book.title }}</h2>
+              <p class="mt-1 truncate text-sm text-white/40">作者：{{ book.author || '未知' }}</p>
+
+              <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                <span
+                  v-if="scoreText"
+                  class="inline-flex items-center gap-1 rounded-full border border-amber-300/20 bg-amber-400/10 px-2.5 py-1 font-medium text-amber-300"
+                >⭐ {{ scoreText }}</span>
+                <span
+                  class="inline-flex items-center rounded-full border px-2.5 py-1 font-medium"
+                  :class="serialStatusClass"
+                >{{ serialStatusText }}</span>
+                <span class="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-white/60">{{ wordCountText }}</span>
+                <span class="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-white/60">{{ chapterText }}</span>
+              </div>
+
+              <!-- 简介 -->
+              <div v-if="book.intro" class="mt-3">
+                <p class="text-sm leading-relaxed text-white/60" :class="{ 'line-clamp-3': !introExpanded }">{{ book.intro }}</p>
+                <button
+                  v-if="introLong"
+                  type="button"
+                  class="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-red-300/90 transition hover:text-red-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+                  @click="introExpanded = !introExpanded"
+                >
+                  {{ introExpanded ? '收起' : '展开' }}
+                  <svg class="h-3 w-3 transition-transform duration-200" :class="{ 'rotate-180': introExpanded }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="m6 9 6 6 6-6"></path>
+                  </svg>
+                </button>
+              </div>
+
+              <!-- 可抓取提示 -->
+              <p v-if="chapterHint" class="mt-3 text-[11px] leading-relaxed text-amber-300/80">ⓘ {{ chapterHint }}</p>
+
+              <!-- 下载按钮 -->
+              <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <button
+                  v-if="!isDone"
+                  type="button"
+                  @click="downloadAll"
+                  :disabled="downloading || parsing"
+                  class="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-500 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:brightness-100 disabled:active:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60 sm:w-auto"
+                >
+                  <svg v-if="downloading" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"></path>
+                  </svg>
+                  <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 3v12"></path>
+                    <path d="m7 10 5 5 5-5"></path>
+                    <path d="M5 21h14"></path>
+                  </svg>
+                  <span>{{ downloading ? '下载中…' : '一键全本下载' }}</span>
+                </button>
+                <p v-if="!isDone" class="text-[11px] text-white/30">下载过程中请保持页面打开</p>
+              </div>
+            </div>
+          </div>
+        </article>
+      </transition>
+
+      <!-- 下载错误提示 -->
+      <transition name="fade-slide">
+        <div
+          v-if="downloadError"
+          class="flex items-start gap-3 rounded-2xl border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-red-200 shadow-lg shadow-black/20"
+          role="alert"
+        >
+          <span class="mt-0.5 shrink-0" aria-hidden="true">⚠️</span>
+          <div class="min-w-0 flex-1">
+            <p class="break-words leading-relaxed">{{ downloadError }}</p>
+            <button
+              v-if="book && !downloading"
+              type="button"
+              @click="downloadAll"
+              class="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-300/25 bg-red-400/10 px-3 py-1.5 text-xs font-medium text-red-100 transition hover:bg-red-400/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+            >↻ 重试下载</button>
+          </div>
+          <button type="button" @click="downloadError = ''" class="shrink-0 text-red-200/50 transition hover:text-red-100" aria-label="关闭提示">✕</button>
+        </div>
+      </transition>
+
+      <!-- 下载进度卡片 -->
+      <transition name="fade-slide">
+        <section v-if="showProgressPanel" class="glass rounded-3xl p-4 shadow-2xl shadow-black/40 sm:p-6">
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="flex items-center gap-2 text-sm font-semibold text-white/80">
+              <span v-if="downloading" class="relative flex h-2 w-2" aria-hidden="true">
+                <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-60"></span>
+                <span class="relative inline-flex h-2 w-2 rounded-full bg-orange-400"></span>
+              </span>
+              <span v-else-if="isDone" class="h-2 w-2 rounded-full bg-emerald-400" aria-hidden="true"></span>
+              下载进度
+            </h3>
+            <span class="text-sm font-semibold tabular-nums" :class="isDone ? 'text-emerald-300' : 'text-orange-300'">{{ displayPercent }}%</span>
+          </div>
+
+          <!-- 进度条 -->
+          <div class="relative mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/10">
+            <div
+              class="relative h-full rounded-full bg-gradient-to-r from-red-500 to-orange-400 shadow-[0_0_16px_rgba(248,113,113,0.45)] transition-[width] duration-500 ease-out"
+              :style="{ width: barWidth }"
+            >
+              <span v-if="downloading" class="bar-shimmer" aria-hidden="true"></span>
+            </div>
+          </div>
+
+          <p class="mt-3 break-words text-sm leading-relaxed text-white/70" aria-live="polite">{{ progressText }}</p>
+          <p v-if="downloading && failedCount > 0" class="mt-1.5 text-xs text-amber-300/80">已跳过 {{ failedCount }} 个失败章节</p>
+
+          <!-- 完成面板 -->
+          <div
+            v-if="isDone"
+            class="mt-4 rounded-2xl border p-4"
+            :class="failedCount > 0 ? 'border-amber-300/20 bg-amber-400/5' : 'border-emerald-300/20 bg-emerald-400/5'"
+          >
+            <div class="flex items-start gap-3">
+              <span class="mt-0.5 shrink-0 text-xl" aria-hidden="true">{{ failedCount > 0 ? '⚠️' : '✅' }}</span>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold" :class="failedCount > 0 ? 'text-amber-200' : 'text-emerald-200'">
+                  {{ failedCount > 0 ? '下载完成（部分章节缺失）' : '下载完成，全部章节成功' }}
+                </p>
+                <p class="mt-1 break-words text-xs leading-relaxed text-white/50">
+                  共 {{ totalChapters }} 章，成功 {{ successCount }} 章<template v-if="failedCount > 0">，失败 {{ failedCount }} 章</template>
+                  <template v-if="progress.filename"> · {{ progress.filename }}</template>
+                </p>
+                <p v-if="failedCount > 0" class="mt-1 text-xs text-amber-300/80">部分章节不可用（App 独占 / 会员章节 / 风控中断），可稍后点击「重试失败章节」</p>
+                <p v-else class="mt-1 text-xs text-emerald-300/80">TXT 已生成，点击下方按钮保存到本地</p>
+
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                  <a
+                    v-if="progress.filename"
+                    :href="downloadUrl"
+                    :download="progress.filename"
+                    class="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-500 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all duration-200 hover:brightness-110 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60"
+                  >💾 保存 TXT</a>
+                  <button
+                    v-if="failedCount > 0"
+                    type="button"
+                    @click="downloadAll"
+                    :disabled="downloading"
+                    class="inline-flex items-center justify-center gap-2 rounded-2xl border border-amber-300/25 bg-amber-400/10 px-5 py-3 text-sm font-medium text-amber-100 transition hover:bg-amber-400/20 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/50"
+                  >↻ 重试失败章节</button>
+                </div>
+                <p v-if="!progress.filename" class="mt-2 text-xs text-red-300/80">未生成文件：{{ progress.message || '请稍后重试' }}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </transition>
+
+    </main>
+
+    <!-- 底部 -->
+    <footer class="mt-9 flex flex-col items-center gap-2 pb-2 text-center text-[11px] text-white/30">
+      <div class="flex items-center gap-2">
+        <span class="h-1.5 w-1.5 rounded-full" :class="healthDotClass" aria-hidden="true"></span>
+        <span>{{ healthText }}</span>
+      </div>
+      <p>本地运行 · 无需登录 · 仅供个人学习与备份使用</p>
+      <p class="max-w-md">
+        接口签名依赖 APP 版本，番茄改版可能失效；
+        <a class="text-sky-300/80 underline decoration-sky-300/30 underline-offset-2 transition hover:text-sky-200"
+           href="https://github.com/Jees996/fanqie-novel-downloader/issues" target="_blank" rel="noopener">失效请提交 Issue</a>
+        <span class="text-white/15">·</span>
+        <a class="text-white/40 underline decoration-white/15 underline-offset-2 transition hover:text-sky-200"
+           href="https://github.com/Jees996/fanqie-novel-downloader" target="_blank" rel="noopener">GitHub 仓库</a>
+      </p>
+    </footer>
+
+  </div>
+
+  <noscript>
+    <div class="relative z-10 mx-auto max-w-3xl px-4 py-10 text-center text-sm text-red-200">
+      本页面需要启用 JavaScript 才能使用，请在浏览器设置中开启后刷新。
+    </div>
+  </noscript>
+
+  <!-- Vue 3（全局构建版，无需构建工具） -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script>
+    (function () {
+      'use strict';
+
+      var appEl = document.getElementById('app');
+
+      // CDN 加载失败兜底
+      if (!window.Vue) {
+        if (appEl) {
+          appEl.removeAttribute('v-cloak');
+          appEl.innerHTML = '<div class="glass rounded-3xl p-6 text-center text-sm text-red-200">前端资源（Vue 3 CDN）加载失败，请检查网络连接后刷新页面。</div>';
+        }
+        return;
+      }
+
+      // EventSource 实例保持在 Vue 响应式系统之外
+      var eventSource = null;
+
+      function closeEventSource() {
+        if (eventSource) {
+          try { eventSource.close(); } catch (e) { /* ignore */ }
+          eventSource = null;
+        }
+      }
+
+      var app = window.Vue.createApp({
+        data: function () {
+          return {
+            inputText: '',
+            parsing: false,
+            book: null,
+            introExpanded: false,
+            coverError: false,
+            parseError: '',
+            downloading: false,
+            progress: null,
+            downloadError: '',
+            healthState: 'checking',
+            sseErrors: 0
+          };
+        },
+
+        computed: {
+          scoreText: function () {
+            var s = this.book ? this.book.score : null;
+            if (s === null || s === undefined || s === '') return '';
+            var n = Number(s);
+            if (isFinite(n) && n > 0) return n.toFixed(1);
+            return String(s);
+          },
+
+          serialStatusText: function () {
+            var s = this.book && this.book.serial_status ? String(this.book.serial_status).trim() : '';
+            return s || '状态未知';
+          },
+
+          serialStatusClass: function () {
+            var s = this.serialStatusText;
+            if (s.indexOf('完结') !== -1 && s.indexOf('未完结') === -1) {
+              return 'border-emerald-300/20 bg-emerald-400/10 text-emerald-300';
+            }
+            return 'border-sky-300/20 bg-sky-400/10 text-sky-300';
+          },
+
+          wordCountText: function () {
+            var n = this.book ? Number(this.book.word_count) : 0;
+            if (!n || !isFinite(n) || n <= 0) return '字数未知';
+            if (n >= 100000000) return (n / 100000000).toFixed(1).replace(/\.0$/, '') + ' 亿字';
+            if (n >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, '') + ' 万字';
+            return n + ' 字';
+          },
+
+          chapterText: function () {
+            var n = this.book ? Number(this.book.chapter_count) : 0;
+            return n > 0 ? '共 ' + n + ' 章' : '章节未知';
+          },
+
+          introLong: function () {
+            var intro = this.book ? this.book.intro : '';
+            return !!intro && String(intro).length > 90;
+          },
+
+          chapterHint: function () {
+            var b = this.book;
+            if (!b) return '';
+            var total = Number(b.chapter_count) || 0;
+            var avail = Number(b.available_chapters) || 0;
+            if (total > 0 && avail > 0 && avail < total) {
+              return '当前可抓取 ' + avail + '/' + total + ' 章，可稍后重试失败章节';
+            }
+            return '';
+          },
+
+          percentValue: function () {
+            var p = this.progress;
+            if (!p) return 0;
+            var n = Number(p.percent);
+            if (!isFinite(n)) return 0;
+            return Math.max(0, Math.min(100, Math.round(n)));
+          },
+
+          displayPercent: function () {
+            return this.isDone ? 100 : this.percentValue;
+          },
+
+          barWidth: function () {
+            return this.displayPercent + '%';
+          },
+
+          isDone: function () {
+            return !!this.progress && this.progress.status === 'done';
+          },
+
+          failedCount: function () {
+            var p = this.progress;
+            if (!p) return 0;
+            var n = Number(p.failed);
+            return isFinite(n) && n > 0 ? Math.floor(n) : 0;
+          },
+
+          totalChapters: function () {
+            var n = this.progress ? Number(this.progress.total) || 0 : 0;
+            if (!n && this.book) n = Number(this.book.chapter_count) || 0;
+            return n;
+          },
+
+          successCount: function () {
+            return Math.max(0, this.totalChapters - this.failedCount);
+          },
+
+          showProgressPanel: function () {
+            return !!this.book && !!this.progress && this.progress.status !== 'error';
+          },
+
+          progressText: function () {
+            var p = this.progress;
+            if (!p) return '';
+            if (p.status === 'start') return '正在连接下载服务，准备开始下载…';
+            if (p.status === 'done') {
+              if (this.failedCount > 0) {
+                return '下载完成：共 ' + this.totalChapters + ' 章，成功 ' + this.successCount + ' 章，失败 ' + this.failedCount + ' 章';
+              }
+              return '下载完成：共 ' + this.totalChapters + ' 章，全部成功';
+            }
+            if (p.status === 'error') return '下载已中断';
+            var current = Number(p.current) || 0;
+            var total = Number(p.total) || this.totalChapters;
+            var title = p.title ? String(p.title) : '正在获取章节…';
+            return '正在下载：第 ' + current + '/' + total + ' 章 - ' + title + ' [' + this.percentValue + '%]';
+          },
+
+          downloadUrl: function () {
+            var p = this.progress;
+            if (!p || !p.filename) return '#';
+            return '/api/download/file/' + encodeURIComponent(String(p.filename));
+          },
+
+          healthText: function () {
+            if (this.healthState === 'ok') return '服务在线';
+            if (this.healthState === 'offline') return '服务未连接';
+            return '正在检测服务…';
+          },
+
+          healthDotClass: function () {
+            if (this.healthState === 'ok') return 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]';
+            if (this.healthState === 'offline') return 'bg-red-400';
+            return 'bg-white/30 animate-pulse';
+          }
+        },
+
+        methods: {
+          onEnter: function (event) {
+            // 中文输入法合成期间不触发解析
+            if (event && (event.isComposing || event.keyCode === 229)) return;
+            if (event) event.preventDefault();
+            this.parseBook();
+          },
+
+          closeEvents: function () {
+            closeEventSource();
+          },
+
+          resetDownload: function () {
+            closeEventSource();
+            this.downloading = false;
+            this.progress = null;
+            this.downloadError = '';
+          },
+
+          parseBook: async function () {
+            if (this.parsing || this.downloading) return;
+
+            var text = (this.inputText || '').trim();
+            this.parseError = '';
+
+            if (!text) {
+              this.parseError = '请先粘贴小说分享链接或分享文案';
+              this.$nextTick(function () {
+                var el = document.getElementById('url-input');
+                if (el) el.focus();
+              });
+              return;
+            }
+
+            this.parsing = true;
+            this.book = null;
+            this.introExpanded = false;
+            this.coverError = false;
+            this.resetDownload();
+
+            var controller = typeof AbortController === 'function' ? new AbortController() : null;
+            var timer = null;
+            if (controller) {
+              timer = setTimeout(function () { controller.abort(); }, 45000);
+            }
+
+            try {
+              var res = await fetch('/api/parse', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: text }),
+                signal: controller ? controller.signal : undefined
+              });
+
+              var data = null;
+              try {
+                data = await res.json();
+              } catch (jsonErr) {
+                throw new Error('服务器返回数据格式异常');
+              }
+
+              if (data && data.success && data.data) {
+                this.book = data.data;
+                this.coverError = false;
+                this.introExpanded = false;
+              } else {
+                this.parseError = (data && data.error) ? String(data.error) : '解析失败（HTTP ' + res.status + '），请检查链接后重试';
+              }
+            } catch (err) {
+              if (err && err.name === 'AbortError') {
+                this.parseError = '解析超时，请稍后重试';
+              } else if (err && (err.name === 'TypeError' || /Failed to fetch|NetworkError|Load failed/i.test(err.message || ''))) {
+                this.parseError = '无法连接后端服务，请确认服务已启动后重试';
+              } else {
+                this.parseError = '解析失败：' + ((err && err.message) || '未知错误');
+              }
+            } finally {
+              if (timer) clearTimeout(timer);
+              this.parsing = false;
+            }
+          },
+
+          downloadAll: function () {
+            if (!this.book || this.downloading || this.parsing) return;
+
+            this.downloadError = '';
+            this.sseErrors = 0;
+            closeEventSource();
+            this.progress = {
+              status: 'start',
+              current: 0,
+              total: Number(this.book.chapter_count) || 0,
+              title: '',
+              percent: 0,
+              filename: null,
+              failed: 0,
+              message: ''
+            };
+
+            if (typeof window.EventSource !== 'function') {
+              this.progress = null;
+              this.downloadError = '当前浏览器不支持实时进度推送，请使用最新版 Chrome / Edge 浏览器';
+              return;
+            }
+
+            this.downloading = true;
+
+            var es;
+            try {
+              es = new EventSource('/api/download/progress?book_id=' + encodeURIComponent(String(this.book.book_id || '')));
+            } catch (err) {
+              this.downloading = false;
+              this.progress = null;
+              this.downloadError = '无法建立进度连接，请重试';
+              return;
+            }
+
+            eventSource = es;
+            var self = this;
+
+            es.onopen = function () {
+              if (eventSource !== es) return;
+              self.downloadError = '';
+              self.sseErrors = 0;
+            };
+
+            es.onmessage = function (evt) {
+              if (eventSource === es) self.handleProgressEvent(evt);
+            };
+
+            es.onerror = function () {
+              if (eventSource === es) self.handleProgressError(es);
+            };
+          },
+
+          handleProgressEvent: function (evt) {
+            var data;
+            try {
+              data = JSON.parse(evt.data);
+            } catch (e) {
+              return;
+            }
+            if (!data || typeof data !== 'object') return;
+
+            var p = Object.assign({
+              status: 'downloading',
+              current: 0,
+              total: 0,
+              title: '',
+              percent: 0,
+              filename: null,
+              failed: 0,
+              message: ''
+            }, data);
+
+            p.current = Number(p.current) || 0;
+            p.total = Number(p.total) || 0;
+            p.percent = Math.max(0, Math.min(100, Math.round(Number(p.percent) || 0)));
+            p.failed = Number(p.failed) || 0;
+
+            this.progress = p;
+            this.downloadError = '';
+            this.sseErrors = 0;
+
+            if (p.status === 'done') {
+              this.downloading = false;
+              this.closeEvents();
+            } else if (p.status === 'error') {
+              this.downloading = false;
+              this.downloadError = p.message ? String(p.message) : '下载失败，请稍后重试';
+              this.closeEvents();
+            }
+          },
+
+          handleProgressError: function (es) {
+            if (!this.downloading || eventSource !== es) return;
+
+            var closed = es.readyState === window.EventSource.CLOSED;
+            this.sseErrors += 1;
+
+            if (closed || this.sseErrors > 5) {
+              this.downloading = false;
+              if (this.progress) this.progress.status = 'error';
+              this.downloadError = '进度连接已断开，下载可能已中断，请重试';
+              this.closeEvents();
+            } else {
+              // EventSource 会自动重连，这里只做提示，收到下一条消息后自动清除
+              this.downloadError = '网络波动，正在尝试重新连接…';
+            }
+          },
+
+          checkHealth: async function () {
+            var controller = typeof AbortController === 'function' ? new AbortController() : null;
+            var timer = null;
+            if (controller) {
+              timer = setTimeout(function () { controller.abort(); }, 3000);
+            }
+            try {
+              var res = await fetch('/api/health', {
+                cache: 'no-store',
+                signal: controller ? controller.signal : undefined
+              });
+              this.healthState = res.ok ? 'ok' : 'offline';
+            } catch (e) {
+              this.healthState = 'offline';
+            } finally {
+              if (timer) clearTimeout(timer);
+            }
+          }
+        },
+
+        mounted: function () {
+          this.checkHealth();
+          window.addEventListener('beforeunload', closeEventSource);
+        },
+
+        beforeUnmount: function () {
+          closeEventSource();
+          window.removeEventListener('beforeunload', closeEventSource);
+        }
+      });
+
+      app.mount('#app');
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+# fanqie-novel-downloader - backend dependencies
+# install: pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+#
+# Note: the font obfuscation map is precomputed and embedded in
+# core/decryptor.py, so fonttools is NOT needed at runtime.
+# cryptography is required by core/appapi.py (AES-CBC for the App gateway).
+
+fastapi>=0.100.0
+uvicorn>=0.22.0
+requests>=2.28.0
+cryptography>=41.0.0
+
+# optional: only needed for a headless-browser fallback (not used by default)
+# playwright>=1.40.0

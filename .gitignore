@@ -1,0 +1,19 @@
+# 运行时生成
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# 匿名设备 / 正文密钥缓存（首次下载自动生成）
+.fanqie_device.json
+.fanqie_device.tmp
+
+# 导出的 TXT
+downloads/*.txt
+!downloads/.gitkeep
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

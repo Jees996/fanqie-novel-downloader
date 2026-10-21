@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 先看 README 的「签名失效怎么办」
+    url: https://github.com/Jees996/fanqie-novel-downloader#签名失效怎么办重要
+    about: 番茄改版导致只能下前 10 章时，按这一节先排查，再提交 issue。
