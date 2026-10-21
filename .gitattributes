@@ -1,9 +1,10 @@
 # 统一换行符：仓库内一律存 LF，检出时按平台转换
 * text=auto eol=lf
 
-# Windows 批处理必须 CRLF，否则 cmd 解析可能出错
-*.bat text eol=crlf
-*.cmd text eol=crlf
+# Windows 批处理必须 CRLF：按原样入库（-text 关闭转换），
+# 保证 GitHub ZIP / raw 下载后 cmd.exe 仍能正确解析
+*.bat -text
+*.cmd -text
 
 # shell 脚本必须 LF
 *.sh text eol=lf
